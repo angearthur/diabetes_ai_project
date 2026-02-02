@@ -1,0 +1,104 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f7f9fc;
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    max-width: 600px;
+    margin: 50px auto;
+    background-color: #ffffff;
+    padding: 30px 40px;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    text-align: center;
+}
+
+h2 {
+    color: #1f3b73;
+    margin-bottom: 25px;
+}
+
+.inputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-gap: 15px;
+    justify-items: center;
+}
+
+.inputs input,
+.inputs select {
+    width: 90%;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    font-size: 16px;
+}
+
+.inputs button {
+    grid-column: span 2;
+    width: 50%;
+    padding: 12px;
+    margin-top: 10px;
+    background-color: #1f3b73;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+.inputs button:hover {
+    background-color: #334a91;
+}
+
+/* ------------------------- */
+/* Recommendation Boxes */
+.rec-box {
+    background-color: #f0f4ff;
+    padding: 12px 20px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    text-align: left;
+}
+
+.rec-box.current-rec {
+    background-color: #d0e2ff; /* slightly darker for current rec */
+}
+
+.rec-box p {
+    margin: 5px 0;
+} 
+/* Dashboard Table Styling */
+#dashboardTable {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+    font-size: 16px;
+}
+
+#dashboardTable th, #dashboardTable td {
+    border: 1px solid #ccc;
+    padding: 12px 10px;
+    text-align: left;
+}
+
+#dashboardTable th {
+    background-color: #1f3b73;
+    color: white;
+}
+
+#dashboardTable tbody tr:nth-child(even) {
+    background-color: #f0f4ff;
+}
+
+#dashboardTable tbody tr:nth-child(odd) {
+    background-color: #ffffff;
+}
+
+#dashboardTable tbody tr:hover {
+    background-color: #d1d9f5;
+}
+
+

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Patient Login</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="container">
+    <h2>Patient Login</h2>
+
+    <div class="card">
+      <label>Full Name</label>
+      <input
+        type="text"
+        id="patient_name"
+        autocomplete="off"
+        autocapitalize="words"
+        spellcheck="false"
+      />
+
+      <label>6-digit Patient Code</label>
+      <input
+        type="text"
+        id="patient_code"
+        maxlength="6"
+        inputmode="numeric"
+        autocomplete="off"
+      />
+
+      <div style="margin-top:15px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button type="button" id="loginBtn">Login</button>
+        <button type="button" id="registerBtn">Register New Patient</button>
+      </div>
+
+      <p id="msg" style="margin-top:12px; color:#b00020; min-height:18px;"></p>
+
+      <p style="margin-top:15px;">
+        Clinician? <a href="/clinician_login.html">Go to Clinician Login</a>
+      </p>
+    </div>
+  </div>
+
+  <script>
+    const nameEl = document.getElementById("patient_name");
+    const codeEl = document.getElementById("patient_code");
+
+    function setMsg(text, ok=false) {
+      const msg = document.getElementById("msg");
+      msg.style.color = ok ? "#0b6b0b" : "#b00020";
+      msg.textContent = text || "";
+    }
+
+    function getForm() {
+      return { name: nameEl.value.trim(), code: codeEl.value.trim() };
+    }
+
+    function validate({ name, code }) {
+      if (!name) return "Please enter your full name.";
+      if (!/^\d{6}$/.test(code)) return "Please enter a 6-digit code (numbers only).";
+      return null;
+    }
+
+    // digits only
+    codeEl.addEventListener("input", (e) => {
+      e.target.value = e.target.value.replace(/\D/g, "").slice(0, 6);
+    });
+
+    async function checkAlreadyLoggedIn() {
+      try {
+        const res = await fetch("/whoami", { credentials: "include" });
+        const data = await res.json();
+        if (data.role === "patient") window.location.href = "/index.html";
+        if (data.role === "clinician") window.location.href = "/dashboard.html";
+      } catch (e) {}
+    }
+
+    async function doLogin() {
+      setMsg("");
+      const form = getForm();
+      const err = validate(form);
+      if (err) return setMsg(err);
+
+      const res = await fetch("/patient-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(form)
+      });
+
+      const data = await res.json();
+      if (!res.ok) return setMsg(data.error || "Login failed.");
+
+      setMsg("Login successful. Redirecting…", true);
+      window.location.href = "/index.html";
+    }
+
+    async function doRegister() {
+      setMsg("");
+      const form = getForm();
+      const err = validate(form);
+      if (err) return setMsg(err);
+
+      // IMPORTANT: this must hit /patient-register
+      const res = await fetch("/patient-register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(form)
+      });
+
+      const data = await res.json();
+      if (!res.ok) return setMsg(data.error || "Registration failed.");
+
+      setMsg("Registered successfully. Redirecting…", true);
+      window.location.href = "/index.html";
+    }
+
+    document.getElementById("loginBtn").addEventListener("click", doLogin);
+    document.getElementById("registerBtn").addEventListener("click", doRegister);
+
+    window.addEventListener("DOMContentLoaded", () => {
+      // clear any saved values
+      nameEl.value = "";
+      codeEl.value = "";
+      checkAlreadyLoggedIn();
+    });
+  </script>
+</body>
+</html>

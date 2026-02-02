@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Diabetes Lifestyle Recommendation System</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div class="container">
+    <h2>Diabetes Lifestyle Recommendation System</h2>
+
+    <!-- User Inputs -->
+    <div class="inputs">
+        <input type="number" id="age" placeholder="Age">
+        <input type="number" id="weight" placeholder="Weight (kg)">
+        <input type="number" id="height" placeholder="Height (cm)">
+        <select id="activity">
+            <option value="low">Low Activity</option>
+            <option value="medium">Medium Activity</option>
+            <option value="high">High Activity</option>
+        </select>
+        <select id="diet">
+            <option value="vegetarian">Vegetarian</option>
+            <option value="non-vegetarian">Non-Vegetarian</option>
+        </select>
+        <button type="button" onclick="getRecommendations()">Get Recommendations</button>
+    </div>
+
+    <!-- Current Recommendation -->
+    <div id="result"></div>
+
+    <!-- Past Recommendations -->
+    <div id="historyList"></div>
+</div>
+
+<script src="/script.js"></script>
+</body>
+</html>

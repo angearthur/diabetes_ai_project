@@ -1,0 +1,339 @@
+/* ------------------------- */
+/* General Body & Container */
+/* ------------------------- */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f0f4ff;
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    max-width: 900px;
+    margin: 40px auto;
+    background-color: #ffffff;
+    padding: 30px 40px;
+    border-radius: 12px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+}
+
+/* ------------------------- */
+/* Headings */
+/* ------------------------- */
+h2 {
+    color: #1f3b73;
+    text-align: center;
+    margin-bottom: 25px;
+}
+
+h3 {
+    color: #1f3b73;
+    margin-top: 20px;
+    margin-bottom: 15px;
+}
+
+/* ------------------------- */
+/* Labels & Inputs */
+/* ------------------------- */
+label {
+    display: block;
+    margin-top: 15px;
+    font-weight: bold;
+    color: #333;
+}
+
+input[type="text"],
+input[type="number"],
+select {
+    width: 100%;
+    padding: 10px;
+    margin-top: 5px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    box-sizing: border-box;
+    font-size: 14px;
+}
+
+button {
+    margin-top: 20px;
+    padding: 12px 20px;
+    background-color: #1f3b73;
+    color: #fff;
+    font-weight: bold;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.3s ease;
+}
+
+button:hover {
+    background-color: #16305c;
+}
+
+/* ------------------------- */
+/* Dashboard Cards */
+/* ------------------------- */
+.card {
+    background: #ffffff;
+    padding: 25px;
+    margin-bottom: 22px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.card-title {
+  margin-top: 0;
+  margin-bottom: 14px;
+}
+
+/* ------------------------- */
+/* Dashboard Table */
+/* ------------------------- */
+.dashboard-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+
+.dashboard-table th {
+    background-color: #1f3b73;
+    color: #fff;
+    padding: 12px;
+    text-align: left;
+}
+
+.dashboard-table td {
+    padding: 12px;
+    vertical-align: top;
+    border-bottom: 1px solid #ddd;
+    line-height: 1.35;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.clinician-table th {
+  white-space: nowrap;
+}
+
+.patient-name {
+  white-space: nowrap;
+}
+
+.ai-cell {
+  min-width: 240px;
+}
+
+/* Bullet lists in cells */
+.cell-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.cell-list li {
+  margin: 0 0 6px 0;
+  font-size: 0.95rem;
+}
+
+.cell-details summary {
+  cursor: pointer;
+  color: #1f3b73;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.muted {
+  color: #666;
+}
+
+/* ------------------------- */
+/* Clinician Dashboard Filters */
+/* ------------------------- */
+.filters-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 720px) {
+  .filters-grid { grid-template-columns: 1fr; }
+}
+
+.status-msg {
+  margin-top: 12px;
+  color: #b00020;
+  display: none;
+}
+
+.btn-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.btn-primary {
+  background-color: #1f3b73;
+}
+
+.btn-success {
+  background-color: #0b6b0b;
+}
+
+.btn-success:hover {
+  background-color: #095a09;
+}
+/* -------- Clinician Dashboard Header -------- */
+.dash-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  margin-bottom:18px;
+}
+.btn-danger{
+  background:#b00020;
+}
+.btn-danger:hover{
+  background:#8c0019;
+}
+
+/* -------- Table readability -------- */
+.dashboard-table{
+  width:100%;
+  border-collapse:collapse;
+  background:#fff;
+}
+.dashboard-table th,
+.dashboard-table td{
+  border:1px solid #e4e8f2;
+  padding:12px;
+  vertical-align:top;
+  text-align:left;
+  font-size:14px;
+}
+.dashboard-table thead th{
+  background:#f3f6ff;
+  color:#1f3b73;
+  position:sticky;
+  top:0;
+  z-index:1;
+}
+
+/* column sizing */
+.col-patient{ width: 140px; }
+.col-bmi{ width: 80px; white-space:nowrap; }
+.col-feedback{ width: 120px; white-space:nowrap; }
+.col-risk{ width: 130px; }
+.col-ai{ width: 260px; }
+
+/* lists inside table cells */
+.cell-list{
+  margin:0;
+  padding-left:18px;
+}
+.cell-list li{ margin:0 0 4px 0; }
+
+.cell-details summary{
+  cursor:pointer;
+  color:#1f3b73;
+  font-weight:600;
+  margin-top:6px;
+}
+
+/* AI interpretation wrap */
+.ai-cell{
+  max-width:260px;
+}
+.ai-wrap{
+  white-space:normal;
+  word-break:break-word;
+  line-height:1.35;
+}
+
+/* muted dash */
+.muted{ color:#777; }
+
+/* ------------------------- */
+/* Charts */
+/* ------------------------- */
+.chart-title {
+  margin: 15px 0 8px;
+}
+
+.chart-box {
+  background: #f7f9fc;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 18px;
+}
+
+canvas {
+    background-color: #f7f9fc;
+    border-radius: 12px;
+    padding: 15px;
+    margin-bottom: 10px;
+}
+
+/* ------------------------- */
+/* Login Page Layout */
+/* ------------------------- */
+.login-container {
+  max-width: 900px;
+}
+
+.login-panel {
+  max-width: 520px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.subtext {
+  margin-top: -8px;
+  margin-bottom: 20px;
+  color: #555;
+}
+
+.login-card {
+  text-align: left;
+}
+
+/* Bigger code input */
+.code-input {
+  font-size: 22px;
+  letter-spacing: 8px;
+  text-align: center;
+  padding: 14px 12px;
+  border-radius: 10px;
+}
+
+.msg {
+  margin-top: 12px;
+  color: #b00020;
+  min-height: 18px;
+}
+
+.msg.ok {
+  color: #0b6b0b;
+}
+
+.switch-link {
+  margin-top: 16px;
+  text-align: center;
+}
+
+.w-100 { width: 100%; }
+
+/* ------------------------- */
+/* Responsive */
+/* ------------------------- */
+@media (max-width: 768px) {
+    .container {
+        padding: 20px;
+    }
+    canvas {
+        width: 100% !important;
+        height: auto !important;
+    }
+}

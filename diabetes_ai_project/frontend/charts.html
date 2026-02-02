@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Diabetes Charts</title>
+    <link rel="stylesheet" href="/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .container {
+            max-width: 800px;
+            margin: 50px auto;
+            background-color: #ffffff;
+            padding: 30px 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        h2 { color: #1f3b73; margin-bottom: 25px; }
+        h3 { color: #333333; margin-top: 20px; margin-bottom: 15px; }
+        canvas {
+            background-color: #f7f9fc;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 30px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>Diabetes Lifestyle Charts</h2>
+
+    <!-- BMI Chart -->
+    <h3>BMI Trend (Last 3 Recommendations)</h3>
+    <canvas id="bmiChart" width="400" height="200"></canvas>
+
+    <!-- Diet Chart -->
+    <h3>Diet Frequency (Last 3 Recommendations)</h3>
+    <canvas id="dietChart" width="400" height="200"></canvas>
+
+    <!-- Exercise Chart -->
+    <h3>Exercise Frequency (Last 3 Recommendations)</h3>
+    <canvas id="exerciseChart" width="400" height="200"></canvas>
+
+    <!-- General Advice Chart -->
+    <h3>General Advice Frequency (Last 3 Recommendations)</h3>
+    <canvas id="generalChart" width="400" height="200"></canvas>
+</div>
+
+<script>
+async function loadCharts() {
+    try {
+        const res = await fetch("/charts-data");
+        const data = await res.json();
+
+        // Helper: count frequency of items
+        const getCounts = arr => {
+            const counts = {};
+            arr.forEach(item => counts[item] = (counts[item] || 0) + 1);
+            return counts;
+        }
+
+        // ----- BMI Chart -----
+        new Chart(document.getElementById("bmiChart").getContext("2d"), {
+            type: 'line',
+            data: {
+                labels: data.bmi.map((_, i) => `#${i+1}`),
+                datasets: [{
+                    label: 'BMI',
+                    data: data.bmi,
+                    borderColor: '#1f3b73',
+                    backgroundColor: 'rgba(31, 59, 115, 0.2)',
+                    fill: true,
+                    tension: 0.3,
+                    pointBackgroundColor: '#1f3b73',
+                    pointBorderColor: '#1f3b73',
+                    pointRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { labels: { color: '#1f3b73', font: { size: 14 } } } },
+                scales: { x: { ticks: { color: '#333' } }, y: { beginAtZero: true, ticks: { color: '#333' } } }
+            }
+        });
+
+        // ----- Diet Chart -----
+        const dietCounts = getCounts(data.diet_items);
+        new Chart(document.getElementById("dietChart").getContext("2d"), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(dietCounts),
+                datasets: [{
+                    label: 'Diet Count',
+                    data: Object.values(dietCounts),
+                    backgroundColor: '#1f3b73',
+                    borderRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                indexAxis: 'y',
+                plugins: { legend: { display: false } },
+                scales: { x: { beginAtZero: true, ticks: { color: '#333' } }, y: { ticks: { color: '#333' } } }
+            }
+        });
+
+        // ----- Exercise Chart -----
+        const exerciseCounts = getCounts(data.exercise_items);
+        new Chart(document.getElementById("exerciseChart").getContext("2d"), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(exerciseCounts),
+                datasets: [{
+                    label: 'Exercise Count',
+                    data: Object.values(exerciseCounts),
+                    backgroundColor: '#1f3b73',
+                    borderRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                indexAxis: 'y',
+                plugins: { legend: { display: false } },
+                scales: { x: { beginAtZero: true, ticks: { color: '#333' } }, y: { ticks: { color: '#333' } } }
+            }
+        });
+
+        // ----- General Advice Chart -----
+        const generalCounts = getCounts(data.general_items);
+        new Chart(document.getElementById("generalChart").getContext("2d"), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(generalCounts),
+                datasets: [{
+                    label: 'General Advice Count',
+                    data: Object.values(generalCounts),
+                    backgroundColor: '#1f3b73',
+                    borderRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                indexAxis: 'y',
+                plugins: { legend: { display: false } },
+                scales: { x: { beginAtZero: true, ticks: { color: '#333' } }, y: { ticks: { color: '#333' } } }
+            }
+        });
+
+    } catch(err) {
+        console.error("Failed to load charts:", err);
+        alert("Could not load charts. Check console.");
+    }
+}
+
+window.onload = loadCharts;
+</script>
+</body>
+</html>

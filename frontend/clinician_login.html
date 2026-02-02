@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Clinician Login</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="container">
+    <h2>Clinician Login</h2>
+
+    <div class="card">
+      <form id="clinicianForm" autocomplete="off" onsubmit="return false;">
+        <label>Clinician Name</label>
+        <input
+          type="text"
+          id="clinician_name"
+          name="clinician_name_no_autofill"
+          autocomplete="off"
+          spellcheck="false"
+        />
+
+        <label>6-digit Clinician Code</label>
+        <input
+          type="text"
+          id="clinician_code"
+          name="clinician_code_no_autofill"
+          maxlength="6"
+          inputmode="numeric"
+          autocomplete="off"
+        />
+
+        <button type="button" id="loginBtn" style="margin-top:15px;">Login</button>
+
+        <p id="msg" style="margin-top:12px; color:#b00020; min-height:18px;"></p>
+
+        <p style="margin-top:15px;">
+          Patient? <a href="/login.html">Go to Patient Login</a>
+        </p>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const formEl = document.getElementById("clinicianForm");
+    const nameEl = document.getElementById("clinician_name");
+    const codeEl = document.getElementById("clinician_code");
+    const msgEl  = document.getElementById("msg");
+
+    // digits only
+    codeEl.addEventListener("input", (e) => {
+      e.target.value = e.target.value.replace(/\D/g, "").slice(0, 6);
+    });
+
+    // prevent Enter submit
+    formEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") e.preventDefault();
+    });
+
+    async function checkAlreadyLoggedIn() {
+      try {
+        const res = await fetch("/whoami", { credentials: "include" });
+        const data = await res.json();
+        if (data.role === "clinician") window.location.href = "/dashboard.html";
+        if (data.role === "patient") window.location.href = "/index.html";
+      } catch (e) {}
+    }
+
+    async function doLogin() {
+      msgEl.textContent = "";
+
+      const name = nameEl.value.trim();
+      const code = codeEl.value.trim();
+
+      if (!name || !/^\d{6}$/.test(code)) {
+        msgEl.textContent = "Please enter name + 6-digit code.";
+        return;
+      }
+
+      const res = await fetch("/clinician-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ name, code })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        msgEl.textContent = data.error || "Login failed.";
+        return;
+      }
+
+      window.location.href = "/dashboard.html";
+    }
+
+    document.getElementById("loginBtn").addEventListener("click", doLogin);
+
+    window.addEventListener("DOMContentLoaded", () => {
+      nameEl.value = "";
+      codeEl.value = "";
+      checkAlreadyLoggedIn();
+    });
+  </script>
+</body>
+</html>

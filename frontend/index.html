@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Diabetes Lifestyle Recommendation System</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<div class="container">
+  <h2>Diabetes Lifestyle Recommendation System</h2>
+
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+    <p id="welcomeMsg" style="margin:0; color:#1f3b73; font-weight:bold;"></p>
+    <button id="logoutBtn" style="margin-top:0;">Logout</button>
+  </div>
+
+  <div class="card">
+    <label>Age</label>
+    <input type="number" id="age">
+
+    <label>Weight (kg)</label>
+    <input type="number" id="weight">
+
+    <label>Height (cm)</label>
+    <input type="number" id="height">
+
+    <label>Activity Level</label>
+    <select id="activity">
+      <option value="Low">Low</option>
+      <option value="High">High</option>
+    </select>
+
+    <label>Diet Preference</label>
+    <select id="diet">
+      <option value="Vegetarian">Vegetarian</option>
+      <option value="Non-Vegetarian">Non-Vegetarian</option>
+    </select>
+
+    <button onclick="getRecommendation()">Get Recommendation</button>
+  </div>
+
+  <div id="recommendationResult"></div>
+
+  <h3 id="chartsTitle" style="display:none;">Your Health Trends</h3>
+  <canvas id="bmiChart"></canvas>
+  <canvas id="dietChart"></canvas>
+  <canvas id="exerciseChart"></canvas>
+  <canvas id="generalChart"></canvas>
+</div>
+
+<script src="/script.js"></script>
+
+<script>
+  async function guardPatientPage() {
+    const res = await fetch("/whoami", { credentials: "include" });
+    const data = await res.json();
+
+    if (data.role !== "patient") {
+      window.location.href = "/login.html";
+      return;
+    }
+
+    document.getElementById("welcomeMsg").textContent = `Welcome, ${data.name}`;
+  }
+
+  async function logout() {
+    await fetch("/logout", { method:"POST", credentials:"include" });
+    window.location.href = "/login.html";
+  }
+
+  document.getElementById("logoutBtn").addEventListener("click", logout);
+  window.addEventListener("DOMContentLoaded", guardPatientPage);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Clinician Dashboard</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+  <div class="container">
+    <div class="dash-header">
+      <div>
+        <h2 style="margin:0;">Clinician Dashboard</h2>
+        <p class="subtext" id="welcomeText" style="margin:6px 0 0;">Loading…</p>
+      </div>
+
+      <button id="logoutBtn" class="btn-danger">Logout</button>
+    </div>
+
+    <!-- Filters -->
+    <div class="card">
+      <h3 class="card-title">Filter Patients</h3>
+
+      <div class="filters-grid">
+        <div>
+          <label for="bmiFilter">BMI Range</label>
+          <select id="bmiFilter">
+            <option value="all">All</option>
+            <option value="low">Below 25</option>
+            <option value="medium">25 to 29.9</option>
+            <option value="high">30+</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="feedbackFilter">Feedback Score</label>
+          <select id="feedbackFilter">
+            <option value="all">All</option>
+            <option value="low">Below 3</option>
+            <option value="high">4 or above</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button id="applyBtn" class="btn-primary">Apply Filters</button>
+        <button id="pdfBtn" class="btn-success">Download PDF (Last 3)</button>
+      </div>
+
+      <p id="statusMsg" class="status-msg"></p>
+    </div>
+
+    <!-- Table -->
+    <div class="card">
+      <h3 class="card-title">Recent Patient Recommendations (Last 3)</h3>
+      <div class="table-wrap">
+        <div id="patientsTable"></div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="card">
+      <h3 class="card-title">Charts</h3>
+
+      <h4 class="chart-title">BMI Trend</h4>
+      <div class="chart-box">
+        <canvas id="bmiChart" height="140"></canvas>
+      </div>
+
+      <h4 class="chart-title">Feedback Trend</h4>
+      <div class="chart-box">
+        <canvas id="feedbackChart" height="140"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script src="/dashboard.js"></script>
+</body>
+</html>
