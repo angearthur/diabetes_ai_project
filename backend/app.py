@@ -3,23 +3,37 @@ from flask_cors import CORS
 import sqlite3
 import os
 from io import BytesIO
+import time
+from datetime import timedelta
+import hashlib
 
+from werkzeug.security import generate_password_hash, check_password_hash
 from recommender import generate_adaptive_recommendations
 
+from dotenv import load_dotenv
+
+load_dotenv()
+print("SECRET_KEY loaded:", bool(os.environ.get("SECRET_KEY")))
+print("CODE_PEPPER loaded:", bool(os.environ.get("CODE_PEPPER")))
 
 # -------------------------
 # App setup
 # -------------------------
 app = Flask(__name__, static_folder="../frontend", static_url_path="")
-app.secret_key = "dev-secret-key-change-later"
+
+# ✅ secret key from env (fallback keeps app working)
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-change-later")
+
 CORS(app, supports_credentials=True)
+
+# ✅ Session timeout (auto logout after inactivity)
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(minutes=20)
 
 # -------------------------
 # Database path (IMPORTANT)
 # -------------------------
 DB_PATH = os.path.join(os.path.dirname(__file__), "database.db")
 print("✅ USING DB:", DB_PATH)
-
 
 # -------------------------
 # DB helpers
@@ -29,6 +43,17 @@ def get_conn():
     conn.row_factory = sqlite3.Row
     return conn
 
+# -------------------------
+# ✅ Hashing helpers
+# -------------------------
+CODE_PEPPER = os.environ.get("CODE_PEPPER", "dev-pepper-change-me")
+
+def make_code_digest(code: str) -> str:
+    raw = (CODE_PEPPER + ":" + code).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+def make_code_hash(code: str) -> str:
+    return generate_password_hash(code) # salted
 
 def ensure_schema():
     """Create tables if missing + safely add missing columns/indexes."""
@@ -48,14 +73,24 @@ def ensure_schema():
         )
     """)
 
-    # Add code column if missing
+    # Add legacy code column if missing (kept for backwards compatibility)
     cur.execute("PRAGMA table_info(users)")
     cols = [r["name"] for r in cur.fetchall()]
     if "code" not in cols:
         cur.execute("ALTER TABLE users ADD COLUMN code TEXT")
 
-    # Ensure unique index on code (safe)
+    # ✅ new secure columns
+    cur.execute("PRAGMA table_info(users)")
+    cols = [r["name"] for r in cur.fetchall()]
+    if "code_hash" not in cols:
+        cur.execute("ALTER TABLE users ADD COLUMN code_hash TEXT")
+    if "code_digest" not in cols:
+        cur.execute("ALTER TABLE users ADD COLUMN code_digest TEXT")
+
+    # Keep old unique index (safe; multiple NULLs allowed in SQLite)
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_code ON users(code)")
+    # ✅ uniqueness using digest going forward
+    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_code_digest ON users(code_digest)")
 
     # RECOMMENDATIONS
     cur.execute("""
@@ -81,7 +116,7 @@ def ensure_schema():
         )
     """)
 
-    # CLINICIANS
+    # CLINICIANS (NOTE: code is NOT NULL in your DB, we keep it to avoid breaking)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS clinicians (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,26 +125,85 @@ def ensure_schema():
         )
     """)
 
+    # ✅ add hashed columns for clinicians too
+    cur.execute("PRAGMA table_info(clinicians)")
+    ccols = [r["name"] for r in cur.fetchall()]
+    if "code_hash" not in ccols:
+        cur.execute("ALTER TABLE clinicians ADD COLUMN code_hash TEXT")
+    if "code_digest" not in ccols:
+        cur.execute("ALTER TABLE clinicians ADD COLUMN code_digest TEXT")
+
+    # ✅ uniqueness using digest going forward
+    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_clinicians_code_digest ON clinicians(code_digest)")
+
     conn.commit()
     conn.close()
 
-
 ensure_schema()
 
+# -------------------------
+# ✅ Security helpers (login lock + inactivity)
+# -------------------------
+MAX_FAILS = 5
+LOCK_SECONDS = 30
+
+def _lock_key(role: str) -> str:
+    return f"lock_{role}"
+
+def _fail_key(role: str) -> str:
+    return f"fails_{role}"
+
+def is_locked(role: str) -> bool:
+    until = session.get(_lock_key(role))
+    if not until:
+        return False
+    return time.time() < float(until)
+
+def register_fail(role: str):
+    fails = int(session.get(_fail_key(role), 0)) + 1
+    session[_fail_key(role)] = fails
+    if fails >= MAX_FAILS:
+        session[_lock_key(role)] = time.time() + LOCK_SECONDS
+
+def clear_fails(role: str):
+    session.pop(_fail_key(role), None)
+    session.pop(_lock_key(role), None)
+
+def touch_session():
+    session["last_activity"] = time.time()
+
+def logged_in() -> bool:
+    return session.get("role") in ("patient", "clinician")
+
+@app.before_request
+def inactivity_timeout():
+    if logged_in():
+        now = time.time()
+        last = session.get("last_activity", now)
+        if now - float(last) > app.permanent_session_lifetime.total_seconds():
+            session.clear()
+        else:
+            touch_session()
+
+@app.after_request
+def add_security_headers(resp):
+    sensitive_paths = ("/index.html", "/dashboard.html")
+    if request.path in sensitive_paths:
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    return resp
 
 # -------------------------
 # Serve frontend (static)
 # -------------------------
 @app.route("/")
 def home():
-    # Default entry point is the patient login page
     return send_from_directory(app.static_folder, "login.html")
-
 
 @app.route("/<path:path>")
 def static_files(path):
     return send_from_directory(app.static_folder, path)
-
 
 # -------------------------
 # Auth helpers
@@ -117,10 +211,8 @@ def static_files(path):
 def is_patient():
     return session.get("role") == "patient" and session.get("user_id") is not None
 
-
 def is_clinician():
     return session.get("role") == "clinician" and session.get("clinician_id") is not None
-
 
 @app.route("/whoami", methods=["GET"])
 def whoami():
@@ -131,29 +223,20 @@ def whoami():
         "name": session.get("name"),
     })
 
-
-# Your terminal shows frontend calling /me, so keep it as alias to /whoami
 @app.route("/me", methods=["GET"])
 def me():
     return whoami()
-
 
 @app.route("/logout", methods=["POST"])
 def logout():
     session.clear()
     return jsonify({"message": "Logged out"})
 
-
 # -------------------------
-# PATIENT REGISTER (NEW)
+# PATIENT REGISTER (hashed)
 # -------------------------
 @app.route("/patient-register", methods=["POST"])
 def patient_register():
-    """
-    Register a new patient with Full Name + 6-digit code.
-    - Saves into users(name, code)
-    - Logs them in automatically
-    """
     data = request.json or {}
     name = (data.get("name") or "").strip()
     code = (data.get("code") or "").strip()
@@ -161,88 +244,179 @@ def patient_register():
     if not name or not code or len(code) != 6 or not code.isdigit():
         return jsonify({"error": "Please enter full name + 6-digit code"}), 400
 
+    code_digest = make_code_digest(code)
+    code_hash = make_code_hash(code)
+
     conn = get_conn()
     cur = conn.cursor()
 
-    # prevent code reuse
-    cur.execute("SELECT id FROM users WHERE code = ?", (code,))
+    # prevent code reuse (via digest)
+    cur.execute("SELECT id FROM users WHERE code_digest = ?", (code_digest,))
     exists = cur.fetchone()
     if exists:
         conn.close()
         return jsonify({"error": "This code is already used. Choose another 6-digit code."}), 409
 
-    # Create patient
-    cur.execute("INSERT INTO users (name, code) VALUES (?, ?)", (name, code))
+    # store hashed code (do NOT store plaintext)
+    cur.execute(
+        "INSERT INTO users (name, code, code_hash, code_digest) VALUES (?, NULL, ?, ?)",
+        (name, code_hash, code_digest)
+    )
     user_id = cur.lastrowid
     conn.commit()
     conn.close()
 
-    # Auto login
     session.clear()
+    session.permanent = True
     session["role"] = "patient"
     session["user_id"] = user_id
     session["name"] = name
+    touch_session()
+    clear_fails("patient")
 
     return jsonify({"message": "Registered & logged in", "user_id": user_id, "name": name})
 
-
 # -------------------------
-# PATIENT LOGIN
+# PATIENT LOGIN (SAFE against digest duplicates)
 # -------------------------
 @app.route("/patient-login", methods=["POST"])
 def patient_login():
+    if is_locked("patient"):
+        return jsonify({"error": f"Too many attempts. Try again in {LOCK_SECONDS} seconds."}), 429
+
     data = request.json or {}
     name = (data.get("name") or "").strip()
     code = (data.get("code") or "").strip()
 
     if not name or not code or len(code) != 6 or not code.isdigit():
+        register_fail("patient")
         return jsonify({"error": "Invalid login details"}), 400
 
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT id, name FROM users WHERE name=? AND code=?", (name, code))
-    row = cur.fetchone()
-    conn.close()
 
-    if not row:
+    cur.execute("SELECT id, name, code_hash, code, code_digest FROM users WHERE name=?", (name,))
+    rows = cur.fetchall()
+
+    if not rows:
+        conn.close()
+        register_fail("patient")
         return jsonify({"error": "Login failed (name/code not found)"}), 401
 
+    matched = None
+    for row in rows:
+        if row["code_hash"] and check_password_hash(row["code_hash"], code):
+            matched = row
+            break
+        if row["code"] and str(row["code"]).strip() == code:
+            matched = row
+            break
+
+    if not matched:
+        conn.close()
+        register_fail("patient")
+        return jsonify({"error": "Login failed (name/code not found)"}), 401
+
+    # ✅ SAFE migration (no crash if digest duplicates exist)
+    new_hash = make_code_hash(code)
+    new_digest = make_code_digest(code)
+
+    try:
+        cur.execute(
+            "UPDATE users SET code_hash=?, code_digest=?, code=NULL WHERE id=?",
+            (new_hash, new_digest, matched["id"])
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        # digest conflict -> keep login working, store hash only
+        cur.execute(
+            "UPDATE users SET code_hash=?, code=NULL WHERE id=?",
+            (new_hash, matched["id"])
+        )
+        conn.commit()
+
+    conn.close()
+
     session.clear()
+    session.permanent = True
     session["role"] = "patient"
-    session["user_id"] = row["id"]
-    session["name"] = row["name"]
+    session["user_id"] = matched["id"]
+    session["name"] = matched["name"]
+    touch_session()
+    clear_fails("patient")
 
-    return jsonify({"message": "Patient login successful", "user_id": row["id"], "name": row["name"]})
-
+    return jsonify({"message": "Patient login successful", "user_id": matched["id"], "name": matched["name"]})
 
 # -------------------------
-# CLINICIAN LOGIN
+# CLINICIAN LOGIN (SAFE for NOT NULL code column)
 # -------------------------
 @app.route("/clinician-login", methods=["POST"])
 def clinician_login():
+    if is_locked("clinician"):
+        return jsonify({"error": f"Too many attempts. Try again in {LOCK_SECONDS} seconds."}), 429
+
     data = request.json or {}
     name = (data.get("name") or "").strip()
     code = (data.get("code") or "").strip()
 
     if not name or not code or len(code) != 6 or not code.isdigit():
+        register_fail("clinician")
         return jsonify({"error": "Invalid login"}), 400
 
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT id, name FROM clinicians WHERE name=? AND code=?", (name, code))
-    row = cur.fetchone()
-    conn.close()
 
-    if not row:
+    cur.execute("SELECT id, name, code_hash, code, code_digest FROM clinicians WHERE name=?", (name,))
+    rows = cur.fetchall()
+
+    if not rows:
+        conn.close()
+        register_fail("clinician")
         return jsonify({"error": "Clinician login failed"}), 401
 
+    matched = None
+    for row in rows:
+        if row["code_hash"] and check_password_hash(row["code_hash"], code):
+            matched = row
+            break
+        if row["code"] and str(row["code"]).strip() == code:
+            matched = row
+            break
+
+    if not matched:
+        conn.close()
+        register_fail("clinician")
+        return jsonify({"error": "Clinician login failed"}), 401
+
+    # ✅ IMPORTANT: clinicians.code is NOT NULL in your DB -> DO NOT set code=NULL
+    new_hash = make_code_hash(code)
+    new_digest = make_code_digest(code)
+
+    try:
+        cur.execute(
+            "UPDATE clinicians SET code_hash=?, code_digest=? WHERE id=?",
+            (new_hash, new_digest, matched["id"])
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        # digest conflict unlikely for clinicians, but keep safe
+        cur.execute(
+            "UPDATE clinicians SET code_hash=? WHERE id=?",
+            (new_hash, matched["id"])
+        )
+        conn.commit()
+
+    conn.close()
+
     session.clear()
+    session.permanent = True
     session["role"] = "clinician"
-    session["clinician_id"] = row["id"]
-    session["name"] = row["name"]
+    session["clinician_id"] = matched["id"]
+    session["name"] = matched["name"]
+    touch_session()
+    clear_fails("clinician")
 
-    return jsonify({"message": "Clinician login successful", "clinician_id": row["id"], "name": row["name"]})
-
+    return jsonify({"message": "Clinician login successful", "clinician_id": matched["id"], "name": matched["name"]})
 
 # -------------------------
 # Recommendation (PATIENT)
@@ -270,14 +444,12 @@ def recommend():
         conn = get_conn()
         cur = conn.cursor()
 
-        # Update patient profile
         cur.execute("""
             UPDATE users
             SET age=?, weight=?, height=?, activity=?, diet=?
             WHERE id=?
         """, (age, weight, height, activity, diet, user_id))
 
-        # Generate recommendations
         rec = generate_adaptive_recommendations(
             user_id,
             {
@@ -290,7 +462,6 @@ def recommend():
             cur
         )
 
-        # Save recommendation
         cur.execute("""
             INSERT INTO recommendations (user_id, bmi, diet, exercise, general)
             VALUES (?, ?, ?, ?, ?)
@@ -310,7 +481,6 @@ def recommend():
     except Exception as e:
         print("❌ /recommend error:", e)
         return jsonify({"error": "Failed to get recommendation"}), 500
-
 
 # -------------------------
 # USER CHARTS (OWN DATA ONLY)
@@ -341,7 +511,6 @@ def user_charts(user_id):
         "general": sum([(r["general"] or "").split(", ") for r in rows], []),
     })
 
-
 # -------------------------
 # FEEDBACK (PATIENT)
 # -------------------------
@@ -369,7 +538,6 @@ def feedback():
     conn.close()
 
     return jsonify({"message": "Feedback saved"})
-
 
 # -------------------------
 # CLINICIAN DATA (Last 3)
@@ -405,7 +573,6 @@ def clinician_data():
         bmi = float(r["bmi"]) if r["bmi"] is not None else None
         fb = float(r["feedback"]) if r["feedback"] is not None else 3.0
 
-        # ✅ UPDATED BMI RISK LOGIC (ONLY CHANGE YOU ASKED)
         risks = []
         if bmi is not None:
             if bmi >= 30:
@@ -435,9 +602,8 @@ def clinician_data():
 
     return jsonify(result)
 
-
 # -------------------------
-# EXPORT PDF (Last 3 + filters)
+# EXPORT PDF (unchanged)
 # -------------------------
 @app.route("/export-pdf")
 def export_pdf():
@@ -447,7 +613,6 @@ def export_pdf():
     bmi_filter = request.args.get("bmi", "all")
     fb_filter = request.args.get("feedback", "all")
 
-    # Pull last 3
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
@@ -497,7 +662,7 @@ def export_pdf():
     y -= 18
 
     c.setFont("Helvetica", 10)
-    c.drawString(50, y, f"BMI Filter: {bmi_filter}   |   Feedback Filter: {fb_filter}")
+    c.drawString(50, y, f"BMI Filter: {bmi_filter} | Feedback Filter: {fb_filter}")
     y -= 20
 
     c.setFont("Helvetica-Bold", 9)
@@ -519,13 +684,11 @@ def export_pdf():
             bmi = float(r["bmi"]) if r.get("bmi") is not None else 0.0
             fb = float(r["feedback"]) if r.get("feedback") is not None else 0.0
 
-            # ✅ UPDATED BMI RISK LOGIC (matches dashboard)
             risks = []
             if bmi >= 30:
                 risks.append("High BMI (High Risk)")
             elif bmi >= 25:
-                risks.append("Needs Monitoring")
-
+                risks.append("Needs Monitoring (Moderate Risk)")
             if fb <= 2:
                 risks.append("Low Feedback")
 
@@ -551,11 +714,8 @@ def export_pdf():
     return Response(
         pdf,
         mimetype="application/pdf",
-        headers={
-            "Content-Disposition": "attachment; filename=clinician_report_last3.pdf"
-        }
+        headers={"Content-Disposition": "attachment; filename=clinician_report_last3.pdf"}
     )
-
 
 # -------------------------
 # Run
