@@ -44,6 +44,7 @@ label {
 
 input[type="text"],
 input[type="number"],
+input[type="email"],
 select {
     width: 100%;
     padding: 10px;
@@ -70,6 +71,24 @@ button:hover {
     background-color: #16305c;
 }
 
+button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+/* ------------------------- */
+/* Messages */
+/* ------------------------- */
+.msg {
+    margin-top: 12px;
+    color: #b00020;
+    min-height: 18px;
+}
+
+.msg.ok {
+    color: #0b6b0b;
+}
+
 /* ------------------------- */
 /* Dashboard Cards */
 /* ------------------------- */
@@ -82,8 +101,8 @@ button:hover {
 }
 
 .card-title {
-  margin-top: 0;
-  margin-bottom: 14px;
+    margin-top: 0;
+    margin-bottom: 14px;
 }
 
 /* ------------------------- */
@@ -110,163 +129,148 @@ button:hover {
 }
 
 .table-wrap {
-  overflow-x: auto;
+    overflow-x: auto;
 }
 
 .clinician-table th {
-  white-space: nowrap;
+    white-space: nowrap;
 }
 
 .patient-name {
-  white-space: nowrap;
+    white-space: nowrap;
 }
 
 .ai-cell {
-  min-width: 240px;
+    min-width: 240px;
 }
 
-/* Bullet lists in cells */
+/* Bullet lists */
 .cell-list {
-  margin: 0;
-  padding-left: 18px;
+    margin: 0;
+    padding-left: 18px;
 }
 
 .cell-list li {
-  margin: 0 0 6px 0;
-  font-size: 0.95rem;
+    margin: 0 0 6px 0;
+    font-size: 0.95rem;
 }
 
 .cell-details summary {
-  cursor: pointer;
-  color: #1f3b73;
-  font-weight: 600;
-  margin-top: 6px;
+    cursor: pointer;
+    color: #1f3b73;
+    font-weight: 600;
+    margin-top: 6px;
 }
 
 .muted {
-  color: #666;
+    color: #666;
 }
 
 /* ------------------------- */
 /* Clinician Dashboard Filters */
 /* ------------------------- */
 .filters-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
 }
 
 @media (max-width: 720px) {
-  .filters-grid { grid-template-columns: 1fr; }
+    .filters-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .status-msg {
-  margin-top: 12px;
-  color: #b00020;
-  display: none;
+    margin-top: 12px;
+    color: #b00020;
+    display: none;
 }
 
 .btn-row {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 16px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 16px;
 }
 
 .btn-primary {
-  background-color: #1f3b73;
+    background-color: #1f3b73;
 }
 
 .btn-success {
-  background-color: #0b6b0b;
+    background-color: #0b6b0b;
 }
 
 .btn-success:hover {
-  background-color: #095a09;
+    background-color: #095a09;
 }
+
 /* -------- Clinician Dashboard Header -------- */
-.dash-header{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:12px;
-  margin-bottom:18px;
+.dash-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 18px;
 }
-.btn-danger{
-  background:#b00020;
+
+.btn-danger {
+    background: #b00020;
 }
-.btn-danger:hover{
-  background:#8c0019;
+
+.btn-danger:hover {
+    background: #8c0019;
 }
 
 /* -------- Table readability -------- */
-.dashboard-table{
-  width:100%;
-  border-collapse:collapse;
-  background:#fff;
+.dashboard-table {
+    background: #fff;
 }
+
 .dashboard-table th,
-.dashboard-table td{
-  border:1px solid #e4e8f2;
-  padding:12px;
-  vertical-align:top;
-  text-align:left;
-  font-size:14px;
+.dashboard-table td {
+    border: 1px solid #e4e8f2;
+    padding: 12px;
+    vertical-align: top;
+    text-align: left;
+    font-size: 14px;
 }
-.dashboard-table thead th{
-  background:#f3f6ff;
-  color:#1f3b73;
-  position:sticky;
-  top:0;
-  z-index:1;
+
+.dashboard-table thead th {
+    background: #f3f6ff;
+    color: #1f3b73;
+    position: sticky;
+    top: 0;
+    z-index: 1;
 }
 
 /* column sizing */
-.col-patient{ width: 140px; }
-.col-bmi{ width: 80px; white-space:nowrap; }
-.col-feedback{ width: 120px; white-space:nowrap; }
-.col-risk{ width: 130px; }
-.col-ai{ width: 260px; }
+.col-patient { width: 140px; }
+.col-bmi { width: 80px; white-space: nowrap; }
+.col-feedback { width: 120px; white-space: nowrap; }
+.col-risk { width: 130px; }
+.col-ai { width: 260px; }
 
-/* lists inside table cells */
-.cell-list{
-  margin:0;
-  padding-left:18px;
+/* AI wrap */
+.ai-wrap {
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.35;
 }
-.cell-list li{ margin:0 0 4px 0; }
-
-.cell-details summary{
-  cursor:pointer;
-  color:#1f3b73;
-  font-weight:600;
-  margin-top:6px;
-}
-
-/* AI interpretation wrap */
-.ai-cell{
-  max-width:260px;
-}
-.ai-wrap{
-  white-space:normal;
-  word-break:break-word;
-  line-height:1.35;
-}
-
-/* muted dash */
-.muted{ color:#777; }
 
 /* ------------------------- */
 /* Charts */
 /* ------------------------- */
 .chart-title {
-  margin: 15px 0 8px;
+    margin: 15px 0 8px;
 }
 
 .chart-box {
-  background: #f7f9fc;
-  border-radius: 12px;
-  padding: 14px;
-  margin-bottom: 18px;
+    background: #f7f9fc;
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 18px;
 }
 
 canvas {
@@ -275,55 +279,6 @@ canvas {
     padding: 15px;
     margin-bottom: 10px;
 }
-
-/* ------------------------- */
-/* Login Page Layout */
-/* ------------------------- */
-.login-container {
-  max-width: 900px;
-}
-
-.login-panel {
-  max-width: 520px;
-  margin: 0 auto;
-  text-align: center;
-}
-
-.subtext {
-  margin-top: -8px;
-  margin-bottom: 20px;
-  color: #555;
-}
-
-.login-card {
-  text-align: left;
-}
-
-/* Bigger code input */
-.code-input {
-  font-size: 22px;
-  letter-spacing: 8px;
-  text-align: center;
-  padding: 14px 12px;
-  border-radius: 10px;
-}
-
-.msg {
-  margin-top: 12px;
-  color: #b00020;
-  min-height: 18px;
-}
-
-.msg.ok {
-  color: #0b6b0b;
-}
-
-.switch-link {
-  margin-top: 16px;
-  text-align: center;
-}
-
-.w-100 { width: 100%; }
 
 /* ------------------------- */
 /* Responsive */

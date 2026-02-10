@@ -11,7 +11,11 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from recommender import generate_adaptive_recommendations
 
 from dotenv import load_dotenv
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
+# -------------------------
+# Load env early
+# -------------------------
 load_dotenv()
 print("SECRET_KEY loaded:", bool(os.environ.get("SECRET_KEY")))
 print("CODE_PEPPER loaded:", bool(os.environ.get("CODE_PEPPER")))
@@ -20,17 +24,24 @@ print("CODE_PEPPER loaded:", bool(os.environ.get("CODE_PEPPER")))
 # App setup
 # -------------------------
 app = Flask(__name__, static_folder="../frontend", static_url_path="")
-
-# ✅ secret key from env (fallback keeps app working)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-change-later")
 
 CORS(app, supports_credentials=True)
-
-# ✅ Session timeout (auto logout after inactivity)
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(minutes=20)
 
 # -------------------------
-# Database path (IMPORTANT)
+# Email verification token signer
+# -------------------------
+serializer = URLSafeTimedSerializer(app.secret_key)
+EMAIL_TOKEN_MAX_AGE_SECONDS = 15 * 60  # 15 minutes
+
+# -------------------------
+# Pre-auth expiry (NEW)
+# -------------------------
+PREAUTH_MAX_AGE_SECONDS = 10 * 60  # 10 minutes
+
+# -------------------------
+# Database path
 # -------------------------
 DB_PATH = os.path.join(os.path.dirname(__file__), "database.db")
 print("✅ USING DB:", DB_PATH)
@@ -44,7 +55,7 @@ def get_conn():
     return conn
 
 # -------------------------
-# ✅ Hashing helpers
+# Code hashing helpers
 # -------------------------
 CODE_PEPPER = os.environ.get("CODE_PEPPER", "dev-pepper-change-me")
 
@@ -53,14 +64,16 @@ def make_code_digest(code: str) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 def make_code_hash(code: str) -> str:
-    return generate_password_hash(code) # salted
+    return generate_password_hash(code)
 
+# -------------------------
+# Schema
+# -------------------------
 def ensure_schema():
-    """Create tables if missing + safely add missing columns/indexes."""
     conn = get_conn()
     cur = conn.cursor()
 
-    # USERS table (patients)
+    # USERS
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,14 +85,11 @@ def ensure_schema():
             diet TEXT
         )
     """)
-
-    # Add legacy code column if missing (kept for backwards compatibility)
     cur.execute("PRAGMA table_info(users)")
     cols = [r["name"] for r in cur.fetchall()]
+
     if "code" not in cols:
         cur.execute("ALTER TABLE users ADD COLUMN code TEXT")
-
-    # ✅ new secure columns
     cur.execute("PRAGMA table_info(users)")
     cols = [r["name"] for r in cur.fetchall()]
     if "code_hash" not in cols:
@@ -87,10 +97,24 @@ def ensure_schema():
     if "code_digest" not in cols:
         cur.execute("ALTER TABLE users ADD COLUMN code_digest TEXT")
 
-    # Keep old unique index (safe; multiple NULLs allowed in SQLite)
+    # patient identity + email verification
+    cur.execute("PRAGMA table_info(users)")
+    cols = [r["name"] for r in cur.fetchall()]
+    if "title" not in cols:
+        cur.execute("ALTER TABLE users ADD COLUMN title TEXT")
+    if "first_name" not in cols:
+        cur.execute("ALTER TABLE users ADD COLUMN first_name TEXT")
+    if "surname" not in cols:
+        cur.execute("ALTER TABLE users ADD COLUMN surname TEXT")
+    if "email" not in cols:
+        cur.execute("ALTER TABLE users ADD COLUMN email TEXT")
+    if "email_verified" not in cols:
+        cur.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0")
+
+    # indexes
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_code ON users(code)")
-    # ✅ uniqueness using digest going forward
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_code_digest ON users(code_digest)")
+    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)")
 
     # RECOMMENDATIONS
     cur.execute("""
@@ -116,7 +140,7 @@ def ensure_schema():
         )
     """)
 
-    # CLINICIANS (NOTE: code is NOT NULL in your DB, we keep it to avoid breaking)
+    # CLINICIANS (keep code NOT NULL)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS clinicians (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -125,7 +149,7 @@ def ensure_schema():
         )
     """)
 
-    # ✅ add hashed columns for clinicians too
+    # clinician hashed code columns
     cur.execute("PRAGMA table_info(clinicians)")
     ccols = [r["name"] for r in cur.fetchall()]
     if "code_hash" not in ccols:
@@ -133,8 +157,22 @@ def ensure_schema():
     if "code_digest" not in ccols:
         cur.execute("ALTER TABLE clinicians ADD COLUMN code_digest TEXT")
 
-    # ✅ uniqueness using digest going forward
+    # clinician identity + email verification
+    cur.execute("PRAGMA table_info(clinicians)")
+    ccols = [r["name"] for r in cur.fetchall()]
+    if "title" not in ccols:
+        cur.execute("ALTER TABLE clinicians ADD COLUMN title TEXT")
+    if "first_name" not in ccols:
+        cur.execute("ALTER TABLE clinicians ADD COLUMN first_name TEXT")
+    if "surname" not in ccols:
+        cur.execute("ALTER TABLE clinicians ADD COLUMN surname TEXT")
+    if "email" not in ccols:
+        cur.execute("ALTER TABLE clinicians ADD COLUMN email TEXT")
+    if "email_verified" not in ccols:
+        cur.execute("ALTER TABLE clinicians ADD COLUMN email_verified INTEGER DEFAULT 0")
+
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_clinicians_code_digest ON clinicians(code_digest)")
+    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_clinicians_email ON clinicians(email)")
 
     conn.commit()
     conn.close()
@@ -142,7 +180,7 @@ def ensure_schema():
 ensure_schema()
 
 # -------------------------
-# ✅ Security helpers (login lock + inactivity)
+# Security helpers
 # -------------------------
 MAX_FAILS = 5
 LOCK_SECONDS = 30
@@ -195,7 +233,44 @@ def add_security_headers(resp):
     return resp
 
 # -------------------------
-# Serve frontend (static)
+# Pre-auth (email verified gate)
+# -------------------------
+def set_preauth(role: str, target_id: int):
+    session["preauth_role"] = role
+    session["preauth_id"] = int(target_id)
+    session["preauth_at"] = time.time()
+
+def clear_preauth():
+    session.pop("preauth_role", None)
+    session.pop("preauth_id", None)
+    session.pop("preauth_at", None)
+
+# ✅ UPDATED: expires preauth after PREAUTH_MAX_AGE_SECONDS
+def preauth_ok(role: str, target_id: int) -> bool:
+    if session.get("preauth_role") != role:
+        return False
+    if int(session.get("preauth_id") or 0) != int(target_id):
+        return False
+
+    at = float(session.get("preauth_at") or 0)
+    if at <= 0:
+        return False
+
+    if time.time() - at > PREAUTH_MAX_AGE_SECONDS:
+        clear_preauth()
+        return False
+
+    return True
+
+@app.route("/preauth-status", methods=["GET"])
+def preauth_status():
+    return jsonify({
+        "preauth_role": session.get("preauth_role"),
+        "preauth_id": session.get("preauth_id"),
+    })
+
+# -------------------------
+# Serve frontend
 # -------------------------
 @app.route("/")
 def home():
@@ -223,18 +298,212 @@ def whoami():
         "name": session.get("name"),
     })
 
-@app.route("/me", methods=["GET"])
-def me():
-    return whoami()
-
 @app.route("/logout", methods=["POST"])
 def logout():
     session.clear()
     return jsonify({"message": "Logged out"})
 
-# -------------------------
-# PATIENT REGISTER (hashed)
-# -------------------------
+# ==========================================================
+# PATIENT EMAIL VERIFICATION (terminal link)
+# ==========================================================
+@app.route("/patient-start-verify", methods=["POST"])
+def patient_start_verify():
+    data = request.json or {}
+    title = (data.get("title") or "").strip()
+    first = (data.get("first_name") or "").strip()
+    surname = (data.get("surname") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+
+    if not title or not first or not surname or not email or "@" not in email:
+        return jsonify({"error": "Enter title, first name, surname, and a valid email."}), 400
+
+    full_name = f"{title} {first} {surname}".strip()
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("SELECT id FROM users WHERE email=?", (email,))
+    row = cur.fetchone()
+
+    if row:
+        user_id = int(row["id"])
+        cur.execute(
+            "UPDATE users SET title=?, first_name=?, surname=?, name=?, email_verified=0 WHERE id=?",
+            (title, first, surname, full_name, user_id)
+        )
+    else:
+        # link old record with same name and no email
+        cur.execute("""
+            SELECT id FROM users
+            WHERE (email IS NULL OR TRIM(email)='')
+              AND name=?
+            ORDER BY id DESC
+            LIMIT 1
+        """, (full_name,))
+        legacy = cur.fetchone()
+
+        if legacy:
+            user_id = int(legacy["id"])
+            cur.execute(
+                "UPDATE users SET title=?, first_name=?, surname=?, email=?, email_verified=0 WHERE id=?",
+                (title, first, surname, email, user_id)
+            )
+        else:
+            try:
+                cur.execute(
+                    "INSERT INTO users (title, first_name, surname, name, email, email_verified) VALUES (?, ?, ?, ?, ?, 0)",
+                    (title, first, surname, full_name, email)
+                )
+                user_id = cur.lastrowid
+            except sqlite3.IntegrityError:
+                conn.close()
+                return jsonify({"error": "Email already registered."}), 409
+
+    conn.commit()
+    conn.close()
+
+    token = serializer.dumps({"user_id": int(user_id), "email": email}, salt="patient-email-verify")
+    link = f"http://127.0.0.1:5000/patient-verify?token={token}"
+
+    print("\n✅ PATIENT VERIFICATION LINK (open on SAME PC browser):")
+    print(link)
+    print()
+
+    return jsonify({"message": "Verification link generated. Check terminal and open it."})
+
+@app.route("/patient-verify", methods=["GET"])
+def patient_verify():
+    token = (request.args.get("token") or "").strip()
+    if not token:
+        return "Missing token", 400
+
+    try:
+        payload = serializer.loads(token, salt="patient-email-verify", max_age=EMAIL_TOKEN_MAX_AGE_SECONDS)
+    except SignatureExpired:
+        return "Link expired. Generate a new one.", 400
+    except BadSignature:
+        return "Invalid link.", 400
+
+    user_id = int(payload.get("user_id"))
+    email = (payload.get("email") or "").strip().lower()
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM users WHERE id=? AND email=?", (user_id, email))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return "User not found.", 404
+
+    cur.execute("UPDATE users SET email_verified=1 WHERE id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+    # preauth only (not full login yet)
+    set_preauth("patient", user_id)
+    return send_from_directory(app.static_folder, "login.html")
+
+# ==========================================================
+# CLINICIAN EMAIL VERIFICATION (terminal link)
+# (requires clinician exists + code matches)
+# ==========================================================
+@app.route("/clinician-start-verify", methods=["POST"])
+def clinician_start_verify():
+    data = request.json or {}
+    title = (data.get("title") or "").strip()
+    first = (data.get("first_name") or "").strip()
+    surname = (data.get("surname") or "").strip()
+    code = (data.get("code") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+
+    if not title or not first or not surname:
+        return jsonify({"error": "Enter title, first name, and surname."}), 400
+    if not code or not (len(code) == 6 and code.isdigit()):
+        return jsonify({"error": "Enter a valid 6-digit clinician code."}), 400
+    if not email or "@" not in email:
+        return jsonify({"error": "Enter a valid email."}), 400
+
+    full_name = f"{title} {first} {surname}".strip()
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("SELECT id, name, code, code_hash FROM clinicians WHERE name=?", (full_name,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "Clinician not found. Create them first in DB."}), 404
+
+    # verify code matches (supports plaintext or hashed)
+    ok = False
+    if row["code_hash"]:
+        ok = check_password_hash(row["code_hash"], code)
+    else:
+        ok = str(row["code"]).strip() == code
+
+    if not ok:
+        conn.close()
+        return jsonify({"error": "Clinician code incorrect."}), 401
+
+    clinician_id = int(row["id"])
+
+    # store identity + email, reset verified=0
+    try:
+        cur.execute("""
+            UPDATE clinicians
+            SET title=?, first_name=?, surname=?, email=?, email_verified=0
+            WHERE id=?
+        """, (title, first, surname, email, clinician_id))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"error": "That email is already used by another clinician."}), 409
+
+    conn.close()
+
+    token = serializer.dumps({"clinician_id": clinician_id, "email": email}, salt="clinician-email-verify")
+    link = f"http://127.0.0.1:5000/clinician-verify?token={token}"
+
+    print("\n✅ CLINICIAN VERIFICATION LINK (open on SAME PC browser):")
+    print(link)
+    print()
+
+    return jsonify({"message": "Verification link generated. Check terminal and open it."})
+
+@app.route("/clinician-verify", methods=["GET"])
+def clinician_verify():
+    token = (request.args.get("token") or "").strip()
+    if not token:
+        return "Missing token", 400
+
+    try:
+        payload = serializer.loads(token, salt="clinician-email-verify", max_age=EMAIL_TOKEN_MAX_AGE_SECONDS)
+    except SignatureExpired:
+        return "Link expired. Generate a new one.", 400
+    except BadSignature:
+        return "Invalid link.", 400
+
+    clinician_id = int(payload.get("clinician_id"))
+    email = (payload.get("email") or "").strip().lower()
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM clinicians WHERE id=? AND email=?", (clinician_id, email))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return "Clinician not found.", 404
+
+    cur.execute("UPDATE clinicians SET email_verified=1 WHERE id=?", (clinician_id,))
+    conn.commit()
+    conn.close()
+
+    set_preauth("clinician", clinician_id)
+    return send_from_directory(app.static_folder, "clinician_login.html")
+
+# ==========================================================
+# PATIENT REGISTER (code) - REQUIRES patient verified link first
+# ==========================================================
 @app.route("/patient-register", methods=["POST"])
 def patient_register():
     data = request.json or {}
@@ -244,41 +513,62 @@ def patient_register():
     if not name or not code or len(code) != 6 or not code.isdigit():
         return jsonify({"error": "Please enter full name + 6-digit code"}), 400
 
-    code_digest = make_code_digest(code)
-    code_hash = make_code_hash(code)
+    pre_id = int(session.get("preauth_id") or 0)
+    if session.get("preauth_role") != "patient" or pre_id <= 0:
+        return jsonify({"error": "Please verify your email first (generate link + open it)."}), 403
 
     conn = get_conn()
     cur = conn.cursor()
 
-    # prevent code reuse (via digest)
-    cur.execute("SELECT id FROM users WHERE code_digest = ?", (code_digest,))
+    cur.execute("SELECT id, name, email_verified FROM users WHERE id=?", (pre_id,))
+    u = cur.fetchone()
+    if not u:
+        conn.close()
+        return jsonify({"error": "Verified user not found. Verify again."}), 403
+    if int(u["email_verified"] or 0) != 1:
+        conn.close()
+        return jsonify({"error": "Email not verified. Verify again."}), 403
+
+    if str(u["name"] or "").strip() != name:
+        conn.close()
+        return jsonify({"error": "Name does not match the verified user. Verify again."}), 403
+
+    code_digest = make_code_digest(code)
+
+    cur.execute("SELECT id FROM users WHERE code_digest=? AND id<>?", (code_digest, pre_id))
     exists = cur.fetchone()
     if exists:
         conn.close()
         return jsonify({"error": "This code is already used. Choose another 6-digit code."}), 409
 
-    # store hashed code (do NOT store plaintext)
-    cur.execute(
-        "INSERT INTO users (name, code, code_hash, code_digest) VALUES (?, NULL, ?, ?)",
-        (name, code_hash, code_digest)
-    )
-    user_id = cur.lastrowid
-    conn.commit()
+    code_hash = make_code_hash(code)
+
+    try:
+        cur.execute(
+            "UPDATE users SET code=NULL, code_hash=?, code_digest=? WHERE id=?",
+            (code_hash, code_digest, pre_id)
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"error": "Could not save code. Try another code."}), 409
+
     conn.close()
 
     session.clear()
     session.permanent = True
     session["role"] = "patient"
-    session["user_id"] = user_id
+    session["user_id"] = pre_id
     session["name"] = name
     touch_session()
     clear_fails("patient")
+    clear_preauth()
 
-    return jsonify({"message": "Registered & logged in", "user_id": user_id, "name": name})
+    return jsonify({"message": "Registered & logged in", "user_id": pre_id, "name": name})
 
-# -------------------------
-# PATIENT LOGIN (SAFE against digest duplicates)
-# -------------------------
+# ==========================================================
+# PATIENT LOGIN (code) - REQUIRES patient verified link first
+# ==========================================================
 @app.route("/patient-login", methods=["POST"])
 def patient_login():
     if is_locked("patient"):
@@ -295,9 +585,8 @@ def patient_login():
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute("SELECT id, name, code_hash, code, code_digest FROM users WHERE name=?", (name,))
+    cur.execute("SELECT id, name, code_hash, code, code_digest, email_verified FROM users WHERE name=?", (name,))
     rows = cur.fetchall()
-
     if not rows:
         conn.close()
         register_fail("patient")
@@ -317,10 +606,17 @@ def patient_login():
         register_fail("patient")
         return jsonify({"error": "Login failed (name/code not found)"}), 401
 
-    # ✅ SAFE migration (no crash if digest duplicates exist)
+    if int(matched["email_verified"] or 0) != 1:
+        conn.close()
+        return jsonify({"error": "Email not verified. Generate link and verify first."}), 403
+
+    if not preauth_ok("patient", int(matched["id"])):
+        conn.close()
+        return jsonify({"error": "Please verify your email first (generate link + open it)."}), 403
+
+    # safe upgrade
     new_hash = make_code_hash(code)
     new_digest = make_code_digest(code)
-
     try:
         cur.execute(
             "UPDATE users SET code_hash=?, code_digest=?, code=NULL WHERE id=?",
@@ -328,7 +624,6 @@ def patient_login():
         )
         conn.commit()
     except sqlite3.IntegrityError:
-        # digest conflict -> keep login working, store hash only
         cur.execute(
             "UPDATE users SET code_hash=?, code=NULL WHERE id=?",
             (new_hash, matched["id"])
@@ -344,12 +639,13 @@ def patient_login():
     session["name"] = matched["name"]
     touch_session()
     clear_fails("patient")
+    clear_preauth()
 
     return jsonify({"message": "Patient login successful", "user_id": matched["id"], "name": matched["name"]})
 
-# -------------------------
-# CLINICIAN LOGIN (SAFE for NOT NULL code column)
-# -------------------------
+# ==========================================================
+# CLINICIAN LOGIN (code) - REQUIRES clinician verified link first
+# ==========================================================
 @app.route("/clinician-login", methods=["POST"])
 def clinician_login():
     if is_locked("clinician"):
@@ -366,43 +662,45 @@ def clinician_login():
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute("SELECT id, name, code_hash, code, code_digest FROM clinicians WHERE name=?", (name,))
-    rows = cur.fetchall()
-
-    if not rows:
+    cur.execute("SELECT id, name, code_hash, code, email_verified FROM clinicians WHERE name=?", (name,))
+    row = cur.fetchone()
+    if not row:
         conn.close()
         register_fail("clinician")
         return jsonify({"error": "Clinician login failed"}), 401
 
-    matched = None
-    for row in rows:
-        if row["code_hash"] and check_password_hash(row["code_hash"], code):
-            matched = row
-            break
-        if row["code"] and str(row["code"]).strip() == code:
-            matched = row
-            break
+    ok = False
+    if row["code_hash"]:
+        ok = check_password_hash(row["code_hash"], code)
+    else:
+        ok = str(row["code"]).strip() == code
 
-    if not matched:
+    if not ok:
         conn.close()
         register_fail("clinician")
         return jsonify({"error": "Clinician login failed"}), 401
 
-    # ✅ IMPORTANT: clinicians.code is NOT NULL in your DB -> DO NOT set code=NULL
+    if int(row["email_verified"] or 0) != 1:
+        conn.close()
+        return jsonify({"error": "Email not verified. Generate link and verify first."}), 403
+
+    if not preauth_ok("clinician", int(row["id"])):
+        conn.close()
+        return jsonify({"error": "Please verify your email first (generate link + open it)."}), 403
+
+    # upgrade hash/digest, but do NOT null code (NOT NULL)
     new_hash = make_code_hash(code)
     new_digest = make_code_digest(code)
-
     try:
         cur.execute(
             "UPDATE clinicians SET code_hash=?, code_digest=? WHERE id=?",
-            (new_hash, new_digest, matched["id"])
+            (new_hash, new_digest, row["id"])
         )
         conn.commit()
     except sqlite3.IntegrityError:
-        # digest conflict unlikely for clinicians, but keep safe
         cur.execute(
             "UPDATE clinicians SET code_hash=? WHERE id=?",
-            (new_hash, matched["id"])
+            (new_hash, row["id"])
         )
         conn.commit()
 
@@ -411,12 +709,13 @@ def clinician_login():
     session.clear()
     session.permanent = True
     session["role"] = "clinician"
-    session["clinician_id"] = matched["id"]
-    session["name"] = matched["name"]
+    session["clinician_id"] = row["id"]
+    session["name"] = row["name"]
     touch_session()
     clear_fails("clinician")
+    clear_preauth()
 
-    return jsonify({"message": "Clinician login successful", "clinician_id": matched["id"], "name": matched["name"]})
+    return jsonify({"message": "Clinician login successful", "clinician_id": row["id"], "name": row["name"]})
 
 # -------------------------
 # Recommendation (PATIENT)
@@ -483,13 +782,12 @@ def recommend():
         return jsonify({"error": "Failed to get recommendation"}), 500
 
 # -------------------------
-# USER CHARTS (OWN DATA ONLY)
+# USER CHARTS
 # -------------------------
 @app.route("/user-charts/<int:user_id>")
 def user_charts(user_id):
     if not is_patient():
         return jsonify({"error": "Not logged in"}), 401
-
     if int(session["user_id"]) != int(user_id):
         return jsonify({"error": "Forbidden"}), 403
 
@@ -512,7 +810,7 @@ def user_charts(user_id):
     })
 
 # -------------------------
-# FEEDBACK (PATIENT)
+# FEEDBACK
 # -------------------------
 @app.route("/feedback", methods=["POST"])
 def feedback():
@@ -579,7 +877,6 @@ def clinician_data():
                 risks.append("🔴 High BMI (High Risk)")
             elif bmi >= 25:
                 risks.append("🟡 Needs Monitoring (Moderate Risk)")
-
         if fb <= 2:
             risks.append("⚠️ Low Feedback")
 
@@ -603,7 +900,7 @@ def clinician_data():
     return jsonify(result)
 
 # -------------------------
-# EXPORT PDF (unchanged)
+# EXPORT PDF
 # -------------------------
 @app.route("/export-pdf")
 def export_pdf():

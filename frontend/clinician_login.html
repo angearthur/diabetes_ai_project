@@ -5,57 +5,112 @@
   <title>Clinician Login</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
-<body>
+<body class="clinician-page">
+
   <div class="container">
     <h2>Clinician Login</h2>
+<p id="verifiedBadge" class="verified-badge" style="display:none;">Verified ✓</p>
+
 
     <div class="card">
-      <form id="clinicianForm" autocomplete="off" onsubmit="return false;">
-        <label>Clinician Name</label>
-        <input
-          type="text"
-          id="clinician_name"
-          name="clinician_name_no_autofill"
-          autocomplete="off"
-          spellcheck="false"
-        />
+      <h3 style="margin-top:0;">Email Verification (Required)</h3>
 
-        <label>6-digit Clinician Code</label>
-        <input
-          type="text"
-          id="clinician_code"
-          name="clinician_code_no_autofill"
-          maxlength="6"
-          inputmode="numeric"
-          autocomplete="off"
-        />
+      <label>Title</label>
+      <select id="title">
+        <option value="">Select…</option>
+        <option>Dr</option>
+        <option>Mr</option>
+        <option>Mrs</option>
+        <option>Ms</option>
+      </select>
 
-        <button type="button" id="loginBtn" style="margin-top:15px;">Login</button>
+      <label>First Name</label>
+      <input type="text" id="first_name" autocomplete="off" />
 
-        <p id="msg" style="margin-top:12px; color:#b00020; min-height:18px;"></p>
+      <label>Surname</label>
+      <input type="text" id="surname" autocomplete="off" />
 
-        <p style="margin-top:15px;">
-          Patient? <a href="/login.html">Go to Patient Login</a>
-        </p>
-      </form>
+      <label>6-digit Clinician Code (for verification)</label>
+      <input
+        type="text"
+        id="verify_code"
+        maxlength="6"
+        inputmode="numeric"
+        autocomplete="off"
+        class="code-input"
+      />
+
+      <label>Email</label>
+      <input type="email" id="email" autocomplete="off" />
+
+      <button type="button" id="verifyBtn" style="margin-top:15px;">
+        Generate Verification Link (Terminal)
+      </button>
+
+      <p id="verifyMsg" style="margin-top:12px; color:#b00020; min-height:18px;"></p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;">Code Login (Locked until email verified)</h3>
+
+      <label>Full Name</label>
+      <input
+        type="text"
+        id="clinician_name"
+        autocomplete="off"
+        autocapitalize="words"
+        spellcheck="false"
+      />
+
+      <label>6-digit Clinician Code</label>
+      <input
+        type="text"
+        id="login_code"
+        maxlength="6"
+        inputmode="numeric"
+        autocomplete="off"
+        class="code-input"
+      />
+
+      <button type="button" id="loginBtn" disabled>Login</button>
+      <p id="msg" style="margin-top:12px; color:#b00020; min-height:18px;"></p>
+
+      <p style="margin-top:15px;">
+        Patient? <a href="/login.html">Go to Patient Login</a>
+      </p>
     </div>
   </div>
 
   <script>
-    const formEl = document.getElementById("clinicianForm");
+    const titleEl = document.getElementById("title");
+    const firstEl = document.getElementById("first_name");
+    const surEl   = document.getElementById("surname");
+    const verifyCodeEl  = document.getElementById("verify_code");
+    const emailEl = document.getElementById("email");
+
     const nameEl = document.getElementById("clinician_name");
-    const codeEl = document.getElementById("clinician_code");
-    const msgEl  = document.getElementById("msg");
+    const loginCodeEl = document.getElementById("login_code");
 
-    // digits only
-    codeEl.addEventListener("input", (e) => {
-      e.target.value = e.target.value.replace(/\D/g, "").slice(0, 6);
-    });
+    const verifyMsgEl = document.getElementById("verifyMsg");
+    const msgEl = document.getElementById("msg");
+    const loginBtn = document.getElementById("loginBtn");
 
-    // prevent Enter submit
-    formEl.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") e.preventDefault();
-    });
+    function setVerifyMsg(text, ok=false) {
+      verifyMsgEl.style.color = ok ? "#0b6b0b" : "#b00020";
+      verifyMsgEl.textContent = text || "";
+    }
+    function setMsg(text, ok=false) {
+      msgEl.style.color = ok ? "#0b6b0b" : "#b00020";
+      msgEl.textContent = text || "";
+    }
+
+    function digitsOnly(el) {
+      el.addEventListener("input", (e) => {
+        e.target.value = e.target.value.replace(/\D/g, "").slice(0, 6);
+      });
+    }
+    digitsOnly(verifyCodeEl);
+    digitsOnly(loginCodeEl);
 
     async function checkAlreadyLoggedIn() {
       try {
@@ -66,16 +121,63 @@
       } catch (e) {}
     }
 
+    async function refreshPreauth() {
+      try {
+        const res = await fetch("/preauth-status", { credentials: "include" });
+        const data = await res.json();
+        const ok = data.preauth_role === "clinician";
+        const badge = document.getElementById("verifiedBadge");
+badge.style.display = ok ? "block" : "none";
+
+        loginBtn.disabled = !ok;
+
+        if (!ok) setMsg("Verify email first (generate link + open it).");
+        else setMsg("Email verified. You can now login.", true);
+      } catch (e) {
+        loginBtn.disabled = true;
+      }
+    }
+
+    async function generateLink() {
+      setVerifyMsg("");
+
+      const title = titleEl.value.trim();
+      const first_name = firstEl.value.trim();
+      const surname = surEl.value.trim();
+      const code = verifyCodeEl.value.trim();
+      const email = emailEl.value.trim();
+
+      if (!title || !first_name || !surname) {
+        return setVerifyMsg("Please enter title, first name and surname.");
+      }
+      if (!/^\d{6}$/.test(code)) {
+        return setVerifyMsg("Please enter a 6-digit clinician code.");
+      }
+      if (!email || !email.includes("@")) {
+        return setVerifyMsg("Please enter a valid email.");
+      }
+
+      const res = await fetch("/clinician-start-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ title, first_name, surname, code, email })
+      });
+
+      const data = await res.json();
+      if (!res.ok) return setVerifyMsg(data.error || "Failed to generate link.");
+
+      setVerifyMsg(data.message + " (Check terminal)", true);
+    }
+
     async function doLogin() {
-      msgEl.textContent = "";
+      setMsg("");
 
       const name = nameEl.value.trim();
-      const code = codeEl.value.trim();
+      const code = loginCodeEl.value.trim();
 
-      if (!name || !/^\d{6}$/.test(code)) {
-        msgEl.textContent = "Please enter name + 6-digit code.";
-        return;
-      }
+      if (!name) return setMsg("Enter your full name.");
+      if (!/^\d{6}$/.test(code)) return setMsg("Enter a valid 6-digit code.");
 
       const res = await fetch("/clinician-login", {
         method: "POST",
@@ -85,20 +187,30 @@
       });
 
       const data = await res.json();
-      if (!res.ok) {
-        msgEl.textContent = data.error || "Login failed.";
-        return;
-      }
+      if (!res.ok) return setMsg(data.error || "Login failed.");
 
       window.location.href = "/dashboard.html";
     }
 
-    document.getElementById("loginBtn").addEventListener("click", doLogin);
+    document.getElementById("verifyBtn").addEventListener("click", async () => {
+      await generateLink();
+      await refreshPreauth(); // still locked until they OPEN the link
+    });
 
-    window.addEventListener("DOMContentLoaded", () => {
+    loginBtn.addEventListener("click", doLogin);
+
+    window.addEventListener("DOMContentLoaded", async () => {
+      titleEl.value = "";
+      firstEl.value = "";
+      surEl.value = "";
+      verifyCodeEl.value = "";
+      emailEl.value = "";
+
       nameEl.value = "";
-      codeEl.value = "";
-      checkAlreadyLoggedIn();
+      loginCodeEl.value = "";
+
+      await checkAlreadyLoggedIn();
+      await refreshPreauth();
     });
   </script>
 </body>

@@ -7,17 +7,49 @@
 </head>
 <body>
   <div class="container">
-    <h2>Patient Login</h2>
+
+    <!-- Header + Verified badge -->
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+      <h2 style="margin:0;">Patient Login</h2>
+      <span id="verifiedBadge" style="display:none; font-weight:700; color:#0b6b0b;">
+        Verified ✓
+      </span>
+    </div>
 
     <div class="card">
+      <h3 style="margin-top:0;">Email Verification (Required)</h3>
+
+      <label>Title</label>
+      <select id="title">
+        <option value="">Select…</option>
+        <option>Mr</option>
+        <option>Mrs</option>
+        <option>Ms</option>
+        <option>Miss</option>
+        <option>Dr</option>
+      </select>
+
+      <label>First Name</label>
+      <input type="text" id="first_name" autocomplete="off" />
+
+      <label>Surname</label>
+      <input type="text" id="surname" autocomplete="off" />
+
+      <label>Email</label>
+      <input type="email" id="email" autocomplete="off" />
+
+      <button type="button" id="verifyBtn" style="margin-top:15px;">
+        Generate Verification Link (Terminal)
+      </button>
+
+      <p id="verifyMsg" class="msg"></p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;">Enter Code (Locked until email verified)</h3>
+
       <label>Full Name</label>
-      <input
-        type="text"
-        id="patient_name"
-        autocomplete="off"
-        autocapitalize="words"
-        spellcheck="false"
-      />
+      <input type="text" id="patient_name" autocomplete="off" readonly />
 
       <label>6-digit Patient Code</label>
       <input
@@ -28,12 +60,10 @@
         autocomplete="off"
       />
 
-      <div style="margin-top:15px; display:flex; gap:10px; flex-wrap:wrap;">
-        <button type="button" id="loginBtn">Login</button>
-        <button type="button" id="registerBtn">Register New Patient</button>
-      </div>
+      <!-- ✅ ONE BUTTON ONLY -->
+      <button type="button" id="continueBtn" disabled>Register</button>
 
-      <p id="msg" style="margin-top:12px; color:#b00020; min-height:18px;"></p>
+      <p id="msg" class="msg"></p>
 
       <p style="margin-top:15px;">
         Clinician? <a href="/clinician_login.html">Go to Clinician Login</a>
@@ -42,29 +72,54 @@
   </div>
 
   <script>
+    const titleEl = document.getElementById("title");
+    const firstEl = document.getElementById("first_name");
+    const surEl   = document.getElementById("surname");
+    const emailEl = document.getElementById("email");
+    const verifyMsgEl = document.getElementById("verifyMsg");
+
     const nameEl = document.getElementById("patient_name");
     const codeEl = document.getElementById("patient_code");
+    const continueBtn = document.getElementById("continueBtn");
+
+    const verifiedBadge = document.getElementById("verifiedBadge");
 
     function setMsg(text, ok=false) {
       const msg = document.getElementById("msg");
-      msg.style.color = ok ? "#0b6b0b" : "#b00020";
+      msg.className = ok ? "msg ok" : "msg";
       msg.textContent = text || "";
     }
+
+    function setVerifyMsg(text, ok=false) {
+      verifyMsgEl.className = ok ? "msg ok" : "msg";
+      verifyMsgEl.textContent = text || "";
+    }
+
+    // ✅ Auto-fill Full Name (readonly)
+    function syncFullName() {
+      const title = titleEl.value.trim();
+      const first = firstEl.value.trim();
+      const sur   = surEl.value.trim();
+      nameEl.value = `${title} ${first} ${sur}`.replace(/\s+/g, " ").trim();
+    }
+    titleEl.addEventListener("change", syncFullName);
+    firstEl.addEventListener("input", syncFullName);
+    surEl.addEventListener("input", syncFullName);
+
+    // digits only
+    codeEl.addEventListener("input", (e) => {
+      e.target.value = e.target.value.replace(/\D/g, "").slice(0, 6);
+    });
 
     function getForm() {
       return { name: nameEl.value.trim(), code: codeEl.value.trim() };
     }
 
     function validate({ name, code }) {
-      if (!name) return "Please enter your full name.";
+      if (!name) return "Please enter title, first name and surname first.";
       if (!/^\d{6}$/.test(code)) return "Please enter a 6-digit code (numbers only).";
       return null;
     }
-
-    // digits only
-    codeEl.addEventListener("input", (e) => {
-      e.target.value = e.target.value.replace(/\D/g, "").slice(0, 6);
-    });
 
     async function checkAlreadyLoggedIn() {
       try {
@@ -75,55 +130,115 @@
       } catch (e) {}
     }
 
-    async function doLogin() {
+    async function refreshPreauth() {
+      try {
+        const res = await fetch("/preauth-status", { credentials: "include" });
+        const data = await res.json();
+        const ok = data.preauth_role === "patient";
+
+        continueBtn.disabled = !ok;
+        verifiedBadge.style.display = ok ? "inline-block" : "none";
+
+        if (!ok) setMsg("Verify email first (generate link + open it).");
+        else setMsg("Email verified. Enter your 6-digit code and click Register.", true);
+
+      } catch (e) {
+        continueBtn.disabled = true;
+        verifiedBadge.style.display = "none";
+      }
+    }
+
+    async function generateLink() {
+      setVerifyMsg("");
+
+      const title = titleEl.value.trim();
+      const first_name = firstEl.value.trim();
+      const surname = surEl.value.trim();
+      const email = emailEl.value.trim();
+
+      if (!title || !first_name || !surname || !email || !email.includes("@")) {
+        return setVerifyMsg("Please enter title, first name, surname, and a valid email.");
+      }
+
+      const res = await fetch("/patient-start-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ title, first_name, surname, email })
+      });
+
+      const data = await res.json();
+      if (!res.ok) return setVerifyMsg(data.error || "Failed to generate link.");
+
+      setVerifyMsg(data.message + " (Check terminal)", true);
+    }
+
+    // ✅ ONE BUTTON ACTION:
+    // 1) Try LOGIN
+    // 2) If login fails because user has no code yet, AUTO-REGISTER
+    async function doContinue() {
       setMsg("");
       const form = getForm();
       const err = validate(form);
       if (err) return setMsg(err);
 
-      const res = await fetch("/patient-login", {
+      // 1) Try login
+      let res = await fetch("/patient-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify(form)
       });
 
-      const data = await res.json();
-      if (!res.ok) return setMsg(data.error || "Login failed.");
+      let data = await res.json().catch(() => ({}));
 
-      setMsg("Login successful. Redirecting…", true);
-      window.location.href = "/index.html";
-    }
+      if (res.ok) {
+        setMsg("Login successful. Redirecting…", true);
+        return (window.location.href = "/index.html");
+      }
 
-    async function doRegister() {
-      setMsg("");
-      const form = getForm();
-      const err = validate(form);
-      if (err) return setMsg(err);
+      // If email not verified / preauth missing, show that error
+      if (res.status === 403) {
+        return setMsg(data.error || "Please verify your email first (open the link).");
+      }
 
-      // IMPORTANT: this must hit /patient-register
-      const res = await fetch("/patient-register", {
+      // 2) If login failed (likely first time), try register automatically
+      res = await fetch("/patient-register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify(form)
       });
 
-      const data = await res.json();
-      if (!res.ok) return setMsg(data.error || "Registration failed.");
+      data = await res.json().catch(() => ({}));
 
-      setMsg("Registered successfully. Redirecting…", true);
+      if (!res.ok) {
+        return setMsg(data.error || "Could not register/login.");
+      }
+
+      setMsg("Registered & logged in. Redirecting…", true);
       window.location.href = "/index.html";
     }
 
-    document.getElementById("loginBtn").addEventListener("click", doLogin);
-    document.getElementById("registerBtn").addEventListener("click", doRegister);
+    document.getElementById("verifyBtn").addEventListener("click", async () => {
+      await generateLink();
+      await refreshPreauth(); // still locked until they OPEN the link
+    });
 
-    window.addEventListener("DOMContentLoaded", () => {
-      // clear any saved values
+    continueBtn.addEventListener("click", doContinue);
+
+    window.addEventListener("DOMContentLoaded", async () => {
+      titleEl.value = "";
+      firstEl.value = "";
+      surEl.value = "";
+      emailEl.value = "";
+
       nameEl.value = "";
       codeEl.value = "";
-      checkAlreadyLoggedIn();
+
+      syncFullName();
+      await checkAlreadyLoggedIn();
+      await refreshPreauth();
     });
   </script>
 </body>
